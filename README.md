@@ -16,4 +16,6 @@ It uses Arduino IDE for coding and integrates IoT with AI for real-time interact
 - ESP32 Board
 - Arduino IDE
 - Chatbot API (OpenAI or Dialogflow)
+- OLED
+  
 
