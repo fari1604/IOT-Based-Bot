@@ -1,0 +1,132 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+// WiFi credentials
+const char* ssid = "";       // <-- make sure this is your 2.4GHz WiFi
+const char* password = "";
+
+// OpenRouter API
+const char* api_key = "";   // <-- paste the key you copied
+const char* api_url = "https://openrouter.ai/api/v1/chat/completions";
+
+// OLED
+#define OLED_ADDR 0x3C
+Adafruit_SSD1306 display(128, 64, &Wire, -1);
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("SSD1306 allocation failed");
+    for (;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Starting...");
+  display.display();
+
+  // Connect to WiFi
+  Serial.print("Connecting to WiFi");
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Connecting WiFi...");
+  display.display();
+
+  int retries = 20; // try for 10 seconds
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED && retries > 0) {
+    delay(500);
+    Serial.print("*");
+    retries--;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("WiFi Connected!");
+    display.println(WiFi.localIP());
+    display.display();
+  } else {
+    Serial.println("\nFailed to connect to WiFi");
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("WiFi Failed!");
+    display.display();
+  }
+}
+
+void loop() {
+  // Read user input from Serial Monitor
+  if (Serial.available()) {
+    String userInput = Serial.readStringUntil('\n');
+    String reply = getAIResponse(userInput);
+
+    // Print reply to Serial
+    Serial.println("AI Reply:");
+    Serial.println(reply);
+
+    // Display reply on OLED
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 0);
+
+    int maxChars = 20; // wrap text per line
+    for (int i = 0; i < reply.length(); i += maxChars) {
+      display.println(reply.substring(i, i + maxChars));
+    }
+    display.display();
+  }
+  delay(100);
+}
+
+String getAIResponse(String prompt) {
+  if (WiFi.status() != WL_CONNECTED) return "WiFi not connected";
+
+  HTTPClient http;
+  http.begin(api_url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + api_key);
+
+  // Correct DeepSeek model ID
+  String body = "{\"model\":\"deepseek/deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"" + prompt + "\"}]}";
+
+  int code = http.POST(body);
+  String payload = "";
+
+  if (code > 0) {
+    String response = http.getString();
+    Serial.println("Raw Response: " + response);
+
+    StaticJsonDocument<8192> doc;  // bigger buffer
+    DeserializationError error = deserializeJson(doc, response);
+
+    if (!error) {
+      // Debug print entire JSON
+      Serial.println("----DEBUG JSON----");
+      serializeJsonPretty(doc, Serial);
+      Serial.println("\n-----------------");
+
+      // Extract AI reply
+      payload = doc["choices"][0]["message"]["content"].as<String>();
+      if (payload == "") payload = "Empty reply";
+    } else {
+      payload = "JSON parse error";
+    }
+  } else {
+    payload = "HTTP Error: " + String(code);
+  }
+  http.end();
+  return payload;
+}
